@@ -1,0 +1,167 @@
+Scripts of the manuscript.
+###### phylogenetic diversity
+library(GUniFrac)
+library(picante)
+library(ape) 
+Otu_tab1 <- read.table("otu_noplant.txt",row.names=1,header=T,sep="\t",check.names=FALSE)
+Tree <- read.tree("tree.txt") #input tree file
+Otu_tab <- as.data.frame(t(Otu_tab1))
+Otu_tab_rff <- Rarefy(Otu_tab)$ otu.tab.rff
+PD<-pd(Otu_tab_rff,Tree)
+write.csv(PD,file="bacpd.csv")
+
+###### PCoA based on Unifrac distance
+library(GUniFrac)
+library(ape) 
+library(picante)
+Otu_tab1 <- read.table("otutab_3.txt",row.names=1,header=T,sep="\t",check.names=FALSE)
+Tree <- read.tree("bactree.txt") #input OUT table
+Otu_tab <- as.data.frame(t(Otu_tab1))
+Otu_tab_rff <- Rarefy(Otu_tab)$ otu.tab.rff
+write.csv(Otu_tab_rff,file="Otu_tab_rarefy.csv")
+match.phylo.otu = match.phylo.data(Tree, t(Otu_tab_rff))
+Tree<-match.phylo.otu$phy
+unifracs <- GUniFrac(Otu_tab_rff,Tree,alpha=c(0, 0.5, 1))
+du <- unifracs$unifracs[, , "d_UW"] # calculate Unweighted UniFrac distance
+#du2 <- unifracs$unifracs[, , "d_VAW"] # calculate Weighted UniFrac distance
+write.csv(du,file="uu.csv")
+Group <- c(rep("RhizoBF",3),rep("RhizoCF",3),rep("RhizoOF",3),rep("BulkBF",3),rep("BulkCF",3),rep("BulkOF",3)) # input sample names
+shape <- c("RhizoBF" =15,"RhizoCF" =15,"RhizoOF" =15,"BulkBF" =16,"BulkCF" =16,"BulkOF" =16) # define point shape
+color <- c("RhizoBF" ='#83AF9B',"RhizoCF" ='#FC9D9A',"RhizoOF" ='#55A0FB',"BulkBF" ='#83AF9B',"BulkCF" ='#FC9D9A',"BulkOF" ='#55A0FB'
+           ) # define point color
+PCOA <- pcoa(du, correction="none", rn=NULL)
+result <-PCOA$values[,"Relative_eig"] 
+pro1 = as.numeric(sprintf("%.3f",result[1]))*100 
+pro2 = as.numeric(sprintf("%.3f",result[2]))*100 
+x = PCOA$vectors 
+sample_names = rownames(x) 
+pc = as.data.frame(PCOA$vectors) 
+pc$names = sample_names 
+legend_title = "" 
+group = Group 
+pc$group = group 
+xlab=paste("PCOA1(",pro1,"%)",sep="") 
+ylab=paste("PCOA2(",pro2,"%)",sep="") 
+library(ggplot2)
+pca=ggplot(pc,aes(Axis.1,Axis.2)) +
+  geom_point(size=7,aes(color=group,shape=group)) + 
+  # geom_text(aes(label=names),size=4,vjust=-1) + 
+  labs(x=xlab,y=ylab,title="Bacteria Unweighted Unifrac",color=legend_title,shape=legend_title) + 
+  geom_hline(yintercept=0,linetype=4,color="grey") + 
+  geom_vline(xintercept=0,linetype=4,color="grey") + 
+  scale_shape_manual(values=shape) + 
+  scale_color_manual(values=color) + 
+  theme_bw()
+pca
+
+###### PERMANOVA
+library(vegan)
+otu1<- read.csv("Otu_tab_rarefy.csv",row.names = 1)
+group<- read.table("group.txt",row.names = 1)
+otu<-t(otu1)
+adonis(otu~ group,data = group,permutations = 999,method="bray")
+#adonis(otu1~ group$compart*group$treat,data = group,permutations = 999,method="bray")
+
+###### pairwise comparison for PERMANOVA
+pairwise.adonis <-function(x,factors, sim.method, p.adjust.m)
+{
+ library(vegan)
+ co = as.matrix(combn(unique(factors),2))
+ pairs = c()
+ F.Model =c()
+ R2 = c()
+ p.value = c()
+ for(elem in 1:ncol(co)){
+ ad = adonis(x[factors %in%c(as.character(co[1,elem]),as.character(co[2,elem])),] ~
+ factors[factors %in%c(as.character(co[1,elem]),as.character(co[2,elem]))] , method =sim.method);
+ pairs =c(pairs,paste(co[1,elem],'vs',co[2,elem]));
+ F.Model =c(F.Model,ad$aov.tab[1,4]);
+ R2 = c(R2,ad$aov.tab[1,5]);
+ p.value = c(p.value,ad$aov.tab[1,6])
+ }
+ p.adjusted =p.adjust(p.value,method=p.adjust.m)
+ pairw.res = data.frame(pairs,F.Model,R2,p.value,p.adjusted)
+ return(pairw.res)
+}
+pairwise.adonis(otu, group$group, sim.method="bray", p.adjust.m= "bonferroni")
+
+###### Random forest predict biomarker
+library(randomForest)
+data(airquality)
+head(airquality)
+airquality<-read.csv("d_rhizo.csv",header = T)
+set.seed(105)
+time= randomForest(DI ~ ., data=airquality, mtry=3,
+                       importance=TRUE, na.action=na.omit)
+print(time)
+round(importance(time), 2)
+write.csv(importance(time),file="time_FUN_importance1.csv")
+varImpPlot(time)
+pdf(file = "time_FUN_IncMSE.pdf",width =16,height =8)
+varImpPlot(time)
+dev.off()
+
+###### Sum for OTU table in family level
+x<-read.delim("family.txt",check.names = FALSE,header=T)
+y<-aggregate(x[,3:20],by=list(x$genus),FUN=sum)
+write.csv(y,"family.csv")
+
+###### Heatmap
+library(pheatmap)
+data<- read.table("p_value.txt",head = T,row.names=1,sep="\t")
+data<-as.data.frame(data)
+pheatmap(data,scale = "row",cluster_cols = FALSE,cluster_row = FALSE)
+
+###### Volcano plot
+library(ape)
+library(phyloseq)
+library(DESeq2)
+otu_table <- read.csv("otu.csv",row.names = 1)
+df.otu<-as.matrix(otu_table)
+otu_taxa <- read.csv("taxa.csv",row.names = 1)
+taxonomy<-as.matrix(otu_taxa)
+sample_data <- read.csv("sample.csv",row.names = 1)
+library(ape)
+otu.tree <- read.tree("tree.txt")
+library(phyloseq)
+otu.phylo <- phyloseq(otu_table(df.otu,
+                                             taxa_are_rows = TRUE),
+                                             sample_data(sample_data),
+                                             tax_table(taxonomy),
+                                             phy_tree(otu.tree))
+library(DESeq2)
+diagdds = phyloseq_to_deseq2(otu.phylo, ~ sampling_day)
+diagdds = DESeq(diagdds, test="Wald", fitType="parametric")
+res1 = results(diagdds,  contrast=c("id", "BR","BN"), cooksCutoff = FALSE)
+write.csv(res1,file = "BNR.csv")
+res2 = results(diagdds,  contrast=c("id", "CR","CN"), cooksCutoff = FALSE)
+write.csv(res2,file = "CNR.csv")
+library(ggplot2)
+data <- read.csv("BNR.csv",header = TRUE)
+data$color <- ifelse(data$padj<0.05 & abs(data$log2FoldChange)>= 1,ifelse(data$log2FoldChange > 1,'red','blue'),'gray')
+color <- c(red = "#f05b72",gray = "gray",blue = "#426ab3")
+p1 <- ggplot(data, aes(log2FoldChange, -log10(padj), col = color)) +
+  geom_point(size=5) +
+  theme_bw() +
+  scale_color_manual(values = color) +
+  labs(x="log2 (fold change)",y="-log10 (q-value)") +
+  geom_hline(yintercept = -log10(0.05), lty=4,col="grey",lwd=0.6) +
+  geom_vline(xintercept = c(-1, 1), lty=4,col="grey",lwd=0.6) +
+  theme(legend.position = "none",
+        panel.grid=element_blank(),
+        axis.title = element_text(size = 25),
+        axis.text = element_text(size = 20))
+p1
+
+###### Linear regression
+library(ggplot2)
+library(vegan)
+data=read.csv("gene.csv", header = TRUE)
+p<-ggplot(data,aes(x=NRPS,y=Rs))+geom_point(aes(color=color), size=4)+
+  scale_color_manual(values = c("#FC9D9A","#55A0FB","#FFA040","#83AF9B"))+
+  geom_smooth(method ="lm", color="black", se=F)+theme(legend.position="right")+
+  theme(panel.grid = element_line(color = 'gray', linetype = 2, size = 0.1), 
+  panel.background = element_rect(color = 'black', fill = 'transparent'), 
+  legend.key = element_rect(fill = 'transparent')) + 
+  labs(x = "Abuandance of NRPS genes", y = "Abuandance of R. solanacearum")
+p
